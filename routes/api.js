@@ -38,19 +38,18 @@ module.exports = function (app) {
 
       try {
         const threads = await Thread.find({ board })
-          .sort({ bumped_on: -1 }) // Sort by most recent
-          .limit(10) // Limit to 10 threads
-          .select('-delete_password') // Exclude sensitive fields
+          .sort({ bumped_on: -1 })
+          .limit(10)
+          .select('-delete_password -reported')
           .lean();
 
-        // For each thread, limit replies to 3 and exclude sensitive fields
         threads.forEach(thread => {
           thread.replies = thread.replies
-            .sort((a, b) => b.created_on - a.created_on) // Sort replies by most recent
-            .slice(0, 3) // Limit to 3 replies
+            .sort((a, b) => b.created_on - a.created_on)
+            .slice(0, 3)
             .map(reply => {
-              delete reply.delete_password; // Remove sensitive field
-              return reply;
+              const { delete_password, reported, ...rest } = reply;
+              return rest;
             });
         });
 
@@ -123,15 +122,16 @@ module.exports = function (app) {
           return res.status(404).json({ error: 'Thread not found' });
         }
 
+        const replyCreatedOn = new Date();
         const reply = {
           text,
           delete_password,
-          created_on: new Date(),
+          created_on: replyCreatedOn,
           reported: false
         };
 
         thread.replies.push(reply);
-        thread.bumped_on = new Date(); // Update bumped_on when a reply is added
+        thread.bumped_on = replyCreatedOn;
         await thread.save();
         res.json(thread);
       } catch (err) {
@@ -149,17 +149,16 @@ module.exports = function (app) {
 
       try {
         const thread = await Thread.findById(thread_id)
-          .select('-delete_password') // Exclude sensitive fields
+          .select('-delete_password -reported')
           .lean();
 
         if (!thread) {
           return res.status(404).json({ error: 'Thread not found' });
         }
 
-        // Exclude delete_password from replies
         thread.replies = thread.replies.map(reply => {
-          delete reply.delete_password;
-          return reply;
+          const { delete_password, reported, ...rest } = reply;
+          return rest;
         });
 
         res.json(thread);
@@ -191,8 +190,10 @@ module.exports = function (app) {
           return res.status(400).send('incorrect password');
         }
 
-        thread.replies.pull(reply_id);
+        console.log('Before deletion:', reply.text);
+        reply.text = '[deleted]';
         await thread.save();
+        console.log('After deletion:', reply.text);
         res.send('success');
       } catch (err) {
         res.status(500).send('Could not delete reply');
@@ -219,6 +220,7 @@ module.exports = function (app) {
         }
 
         reply.reported = true;
+        await new Promise(resolve => setTimeout(resolve, 100));
         await thread.save();
         res.send('reported');
       } catch (err) {

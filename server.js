@@ -22,6 +22,9 @@ mongoose.connect(process.env.DB, {
 
 // Security Middleware
 app.use(helmet()); // Use Helmet with default security settings
+app.use(helmet({
+  referrerPolicy: { policy: 'same-origin' }
+}));
 
 // Static files
 app.use('/public', express.static(process.cwd() + '/public'));
